@@ -29,17 +29,22 @@ def download_youtube_audio(url: str) -> str:
     output_path = os.path.join(DOWNLOAD_DIR, "%(id)s.%(ext)s")
     cookie_file = _get_cookies_file()
 
-    # Client profiles to bypass YouTube's 403 Forbidden / bot detection on cloud servers
-    client_profiles = [
-        ["android", "ios", "mweb", "web"],
-        ["android"],
-        ["mweb", "web_embedded"],
+    # Combinations of format strings and player_clients designed to bypass YouTube's
+    # SABR-only streaming experiment and 403 Forbidden datacenter blocks.
+    # Format '18' is YouTube's standard progressive MP4 stream (audio + video), which is
+    # immune to the SABR audio token restrictions and 403 Forbidden errors on cloud servers.
+    download_configs = [
+        {"format": "18/ba/b", "clients": ["android", "ios"]},
+        {"format": "18/worst[ext=mp4]/ba/b", "clients": ["android"]},
+        {"format": "18/ba/b", "clients": ["mweb", "web_embedded"]},
+        {"format": "ba/b", "clients": ["android", "web"]},
+        {"format": "bestaudio/best", "clients": ["android", "ios", "mweb", "web"]},
     ]
 
     last_error = None
-    for clients in client_profiles:
+    for config in download_configs:
         ydl_opts = {
-            "format": "bestaudio/best",
+            "format": config["format"],
             "outtmpl": output_path,
             "postprocessors": [
                 {
@@ -50,7 +55,7 @@ def download_youtube_audio(url: str) -> str:
             ],
             "extractor_args": {
                 "youtube": {
-                    "player_client": clients,
+                    "player_client": config["clients"],
                 }
             },
             "http_headers": {
@@ -71,12 +76,16 @@ def download_youtube_audio(url: str) -> str:
                 if info is None:
                     continue
                 video_id = info.get("id")
-                expected_wav = os.path.join(DOWNLOAD_DIR, f"{video_id}.wav")
-                if os.path.exists(expected_wav):
-                    return expected_wav
-                filename = os.path.splitext(ydl.prepare_filename(info))[0] + ".wav"
-                if os.path.exists(filename):
-                    return filename
+                # Look for the generated wav or downloaded media file
+                candidates = [
+                    os.path.join(DOWNLOAD_DIR, f"{video_id}.wav"),
+                    os.path.splitext(ydl.prepare_filename(info))[0] + ".wav",
+                    os.path.join(DOWNLOAD_DIR, f"{video_id}.mp4"),
+                    ydl.prepare_filename(info),
+                ]
+                for cand in candidates:
+                    if os.path.exists(cand) and os.path.getsize(cand) > 0:
+                        return cand
         except Exception as e:
             last_error = e
             continue
