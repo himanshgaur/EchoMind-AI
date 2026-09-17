@@ -5,24 +5,92 @@ import os
 DOWNLOAD_DIR = 'downloads'
 os.makedirs(DOWNLOAD_DIR, exist_ok = True)
 
+def _get_cookies_file() -> str | None:
+    """Check if cookies file or secret is available for YouTube authentication."""
+    if os.path.exists("cookies.txt"):
+        return "cookies.txt"
+    cookies_content = os.environ.get("YOUTUBE_COOKIES")
+    if not cookies_content:
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets") and "YOUTUBE_COOKIES" in st.secrets:
+                cookies_content = st.secrets["YOUTUBE_COOKIES"]
+        except Exception:
+            pass
+    if cookies_content:
+        cookies_path = os.path.join(DOWNLOAD_DIR, "cookies.txt")
+        with open(cookies_path, "w", encoding="utf-8") as f:
+            f.write(cookies_content)
+        return cookies_path
+    return None
+
+
 def download_youtube_audio(url: str) -> str:
-    output_path = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": output_path,
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "wav",
-                "preferredquality": "192",
-            }
-        ],
-        "quiet": True,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        filename = os.path.splitext(ydl.prepare_filename(info))[0] + ".wav"
-    return filename
+    output_path = os.path.join(DOWNLOAD_DIR, "%(id)s.%(ext)s")
+    cookie_file = _get_cookies_file()
+
+    # Client profiles to bypass YouTube's 403 Forbidden / bot detection on cloud servers
+    client_profiles = [
+        ["android", "ios", "mweb", "web"],
+        ["android"],
+        ["mweb", "web_embedded"],
+    ]
+
+    last_error = None
+    for clients in client_profiles:
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": output_path,
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "wav",
+                    "preferredquality": "192",
+                }
+            ],
+            "extractor_args": {
+                "youtube": {
+                    "player_client": clients,
+                }
+            },
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+        }
+        if cookie_file:
+            ydl_opts["cookiefile"] = cookie_file
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                if info is None:
+                    continue
+                video_id = info.get("id")
+                expected_wav = os.path.join(DOWNLOAD_DIR, f"{video_id}.wav")
+                if os.path.exists(expected_wav):
+                    return expected_wav
+                filename = os.path.splitext(ydl.prepare_filename(info))[0] + ".wav"
+                if os.path.exists(filename):
+                    return filename
+        except Exception as e:
+            last_error = e
+            continue
+
+    err_str = str(last_error) if last_error else "Unknown download error"
+    if "403" in err_str or "Forbidden" in err_str or "Sign in" in err_str:
+        raise RuntimeError(
+            "YouTube blocked automated downloads from Streamlit Cloud's IP address (HTTP Error 403: Forbidden).\n\n"
+            "This happens because YouTube restricts traffic from public cloud hosting providers.\n\n"
+            "💡 **How to proceed:**\n"
+            "1. **Recommended:** Switch to the **'📁 Upload File'** tab in the sidebar and upload your video/audio file directly.\n"
+            "2. Or add a `cookies.txt` file (or `YOUTUBE_COOKIES` in Streamlit Secrets) to authenticate requests."
+        )
+    raise RuntimeError(f"Failed to download YouTube audio: {err_str}")
 
 
 def convert_to_wav(input_path: str) -> str:

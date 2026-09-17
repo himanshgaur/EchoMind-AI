@@ -1,6 +1,6 @@
 # AI Meeting Assistant - Python Dependencies
 streamlit>=1.28.0
-yt-dlp>=2023.11.16
+yt-dlp>=2025.1.0
 pydub>=0.25.1
 audioop-lts>=0.2.0
 openai-whisper>=20231117
