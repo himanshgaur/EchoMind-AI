@@ -1,8 +1,10 @@
 import os
 import streamlit as st
-from dotenv import load_dotenv
-
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # Synchronize Streamlit Community Cloud secrets into os.environ
 try:
