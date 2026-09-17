@@ -15,6 +15,17 @@ try:
 except Exception:
     pass
 
+# Python 3.13/3.14 compatibility for pydub
+try:
+    import audioop
+except ImportError:
+    try:
+        import audioop_lts as audioop
+        import sys
+        sys.modules["audioop"] = audioop
+    except ImportError:
+        pass
+
 from utils.audio_processor import process_input, save_uploaded_file
 from core.transcriber import transcribe_all
 from core.summarize import summarize, generate_title
